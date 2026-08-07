@@ -1,0 +1,37 @@
+# Rules Routing Table
+
+Host-maintained lookup that maps a task to the rule files it requires. Agent
+Smith reads this table, matches the current task against it, and passes the
+listed file paths to `agent_smith_select_rules`. The server then walks the
+agent through those files one at a time.
+
+## How Agent Smith uses this table
+
+- File paths are **relative to `lore/rules_md/`** (e.g. `api/handlers.md`).
+- **Multi-select:** pick EVERY row that plausibly matches the task and combine
+  their file lists. Duplicates are removed automatically by the server. When a
+  task spans concerns (e.g. an API change that also touches the database),
+  select all relevant rows.
+- **Do NOT list `core/` files.** Everything under `lore/rules_md/core/` is
+  always read automatically, on every task. Keep core rows out of this table.
+- **When unsure or nothing matches:** call `agent_smith_select_rules` with an
+  empty list. The server then mandates ALL rule files. Reading too much is
+  always safer than missing a rule.
+- If any listed path no longer resolves (a rule was renamed/moved and this
+  table is stale), the server falls back to reading ALL rule files.
+
+## Maintaining this table (for humans)
+
+Add one row per task category your repository cares about. Each row lists the
+task-specific rule files under `lore/rules_md/` that a task of that kind must
+follow. Replace the example rows below with your project's real rule files.
+
+| Task | Rule files to read (relative to lore/rules_md/) |
+|------|--------------------------------------------------|
+| Add or modify a REST API endpoint | `api/handlers.md`, `api/validation.md` |
+| Add or modify a database migration or schema | `db/migrations.md`, `db/models.md` |
+| Frontend / UI component work | `ui/components.md`, `ui/state.md` |
+| Write or change automated tests | `testing/conventions.md` |
+| CI / pipeline / build configuration | `ci/pipelines.md` |
+| Anything touching authentication or secrets handling | `security/auth.md` |
+| General refactor, cleanup, or task that fits no row above | _(leave empty — all rules apply)_ |

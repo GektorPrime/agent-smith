@@ -1,0 +1,14 @@
+fastmcp==3.4.4
+mcp==1.28.1.0
+
+# Embedding — local ONNX inference via fastembed (BAAI/bge-small-en-v1.5)
+# No API key, no network, no cost. Model downloaded on first run (~133MB), cached locally.
+fastembed==0.8.0
+
+# Vector store — SQLite extension for vector similarity search
+sqlite-vec==0.1.9
+
+# JSON Schema validation
+jsonschema==4.26.0
+
+ast-grep-py==0.44.0  # Generic AST navigation — language-agnostic syntax queries

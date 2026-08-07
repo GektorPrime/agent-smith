@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "agent-smith-scenario.schema.json",
+  "title": "Agent Smith Knowledge Base Scenario",
+  "description": "JSON Schema for Agent Smith knowledge base scenario objects. Each scenario file is a JSON array of scenario objects.",
+  "type": "array",
+  "items": {
+    "$ref": "#/definitions/scenario"
+  },
+  "definitions": {
+    "scenario": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "source_file",
+        "section",
+        "tags",
+        "severity",
+        "explanation",
+        "bdd",
+        "verbatim_rule",
+        "examples",
+        "mcp_tool_hint"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique kebab-case identifier. Format: <source-slug>-<section-slug>-<NNN>. E.g. conv-assert-001",
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*-[0-9]{3}$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["rule", "exemplar", "anti-pattern", "reference"],
+          "description": "Scenario type: rule (a mandatory constraint), exemplar (a reference implementation), anti-pattern (a prohibited pattern), or reference (factual knowledge for retrieval — not a constraint)."
+        },
+        "source_file": {
+          "type": "string",
+          "description": "Relative path to the source rule file within the host .agent-smith directory. E.g. lore/rules_md/my-rules.md"
+        },
+        "section": {
+          "type": "string",
+          "description": "The ## heading the rule lives under in the source file."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Tags for filtering and retrieval. Hosts define their own tag vocabulary in lore/authoring/tags.md."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["hard", "soft"],
+          "description": "hard = zero tolerance, AST-verifiable, or security-related. soft = judgment call or context-dependent."
+        },
+        "explanation": {
+          "type": "string",
+          "description": "Why this rule exists — rationale prose explaining the consequence of violation and the design intent. Must NOT restate verbatim_rule. Minimum two sentences.",
+          "minLength": 50
+        },
+        "bdd": {
+          "type": "object",
+          "required": ["given", "when", "then"],
+          "additionalProperties": false,
+          "properties": {
+            "given": {
+              "type": "string",
+              "description": "Precondition that activates the scenario (GIVEN clause)."
+            },
+            "when": {
+              "type": "string",
+              "description": "Trigger or action that causes the constraint to apply (WHEN clause)."
+            },
+            "then": {
+              "type": "string",
+              "description": "Primary required outcome — what the agent must do or must not do (THEN clause)."
+            },
+            "and": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Additional mandatory constraints with the same binding force as THEN (AND clauses)."
+            },
+            "but": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Exceptions or negative constraints — explicit carve-outs or prohibitions (BUT clauses)."
+            }
+          }
+        },
+        "verbatim_rule": {
+          "type": "string",
+          "description": "The most representative THEN/AND/BUT clause from the source SCENARIO block, stripped of the leading keyword but otherwise preserved verbatim. For rules that span multiple clauses, select the single clause that best captures the constraint."
+        },
+        "examples": {
+          "type": "object",
+          "required": ["correct"],
+          "additionalProperties": false,
+          "properties": {
+            "correct": {
+              "type": ["string", "null"],
+              "description": "Minimal code snippet showing compliance. Language should match the host project. Null only for exemplar type."
+            },
+            "incorrect": {
+              "type": ["string", "null"],
+              "description": "Minimal code snippet showing the violation. Language should match the host project. Required for rule type, null for exemplar type."
+            }
+          }
+        },
+        "mcp_tool_hint": {
+          "type": ["string", "null"],
+          "description": "MCP tool name that can verify this rule, or null if none. Valid values: agent_smith_ast_analyze_structure, agent_smith_ast_class_outline, agent_smith_ast_list_imports, agent_smith_ast_find_definitions, agent_smith_ast_search."
+        }
+      },
+      "if": {
+        "properties": {
+          "type": { "const": "rule" }
+        }
+      },
+      "then": {
+        "properties": {
+          "examples": {
+            "required": ["correct", "incorrect"],
+            "properties": {
+              "correct": { "type": "string" },
+              "incorrect": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+[build-system]
+requires = ['hatchling']
+build-backend = 'hatchling.build'
+
+[project]
+name = 'agent-smith'
+version = '1.2.0'
+description = 'Agent Smith standalone package'
+requires-python = '>=3.11'
+dependencies = [
+    'fastmcp==3.4.4',
+    'mcp==1.28.1.0',
+    'fastembed==0.8.0',
+    'sqlite-vec==0.1.9',
+    'jsonschema==4.26.0',
+    'ast-grep-py==0.44.0',
+]
+
+[project.optional-dependencies]
+dev = [
+    'pytest==8.4.2',
+]
+viz = [
+    'renumics-spotlight==1.8.0',
+    'umap-learn==0.5.12',
+    'plotly==6.8.0',
+    'numpy==2.3.5',
+    'pandas==2.3.0',
+]
+
+[project.scripts]
+agent-smith-install-release = 'agent_smith.scripts.install:main'
+agent-smith-mcp = 'agent_smith.mcp.server:main'
+agent-smith-sync = 'agent_smith.scripts.sync:main'
+agent-smith-symlink-rules = 'agent_smith.scripts.symlink_rules:main'
+agent-smith-kb-sync = 'agent_smith.kdb.sync_kb:main'
+agent-smith-kb-query = 'agent_smith.kdb.query_kb:main'
+agent-smith-kb-audit = 'agent_smith.kdb.audit_json:main'
+agent-smith-kb-visualize = 'agent_smith.kdb.tools.visualize_kb:main'
+agent-smith-kb-export-tensorboard = 'agent_smith.kdb.tools.export_tensorboard:main'
+agent-smith-rollback-gates = 'agent_smith.scripts.rollback_gate_phrases:main'
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_smith"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
