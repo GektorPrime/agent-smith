@@ -1,0 +1,5 @@
+*
+!.gitignore
+!clean-agent-smith.sh
+!doc/
+!doc/**
