@@ -30,8 +30,8 @@ import tempfile
 from importlib import metadata
 from pathlib import Path
 
-GITHUB_ORG = 'lightspeedretail'
-GITHUB_REPO = 'agent_smith'
+GITHUB_ORG = 'GektorPrime'
+GITHUB_REPO = 'agent-smith'
 GIT_URL = f'https://github.com/{GITHUB_ORG}/{GITHUB_REPO}.git'
 
 GATE_MARKER = (

@@ -79,7 +79,7 @@ GitHub MCP and read access:
 - **Base/integration branch:** infer from the repository's default branch and the
   base branch of recent merged PRs.
 - **Ticket-key convention:** derive the prefix pattern from existing branch names,
-  PR titles, and open/closed tickets (e.g. `LSR-35538`, `QM-1234`, `LSPAY-567` are
+  PR titles, and open/closed tickets (e.g. `ABC-1234`, `QM-42`, `PLATFORM-567` are
   illustrative of the `PROJECT-NUMBER` shape — find the host's real project keys).
 - **PR template:** look for `.github/PULL_REQUEST_TEMPLATE.md`, `.github/PULL_REQUEST_TEMPLATE/`,
   or `docs/PULL_REQUEST_TEMPLATE.md` in the hosting repository and use it verbatim.
@@ -91,7 +91,7 @@ determined, STOP and ask the caller with a `blocked` result — never guess.
 **Branch and PR rules:**
 
 - PRs MUST target the host's configured integration branch (from the docs above, or discovered) unless the caller gave explicit instruction to do otherwise.
-- Branch name and PR title MUST carry the tracker ticket-key prefix (e.g. `LSR-35538`, `QM-1234`, `LSPAY-567`).
+- Branch name and PR title MUST carry the tracker ticket-key prefix (e.g. `ABC-1234`, `QM-42`, `PLATFORM-567`).
 - Reviewers are auto-assigned via `.github/CODEOWNERS` — do NOT hand-pick reviewers.
 - You do NOT create branches or commits; you operate on PRs via the GitHub MCP only.
 
@@ -103,7 +103,7 @@ Rules for filling the host template:
 
 - Follow the template's section structure **exactly** — same sections, same order, no additions or omissions.
 - Every template placeholder MUST be replaced with real content or an explicit `N/A` where the section does not apply.
-- If the template carries a tracker/ticket header (for example a `JIRA Ticket` line such as `# **JIRA Ticket: [LSR-XXXXX](https://<your-org>.atlassian.net/browse/LSR-XXXXX)**`), replace the placeholder key — in both the link text and the URL — with the real ticket key and its real tracker URL.
+- If the template carries a tracker/ticket header (for example a `JIRA Ticket` line such as `# **JIRA Ticket: [ABC-XXXXX](https://<your-org>.atlassian.net/browse/ABC-XXXXX)**`), replace the placeholder key — in both the link text and the URL — with the real ticket key and its real tracker URL.
 - Check boxes in any checklist only when the caller confirms each item is satisfied.
 
 You MUST NOT submit a PR body with template placeholder text left intact, and you MUST NOT replace the template with freeform content of your own structure. If the caller did not supply enough content to fill a required section, stop and ask the caller — do not guess or leave placeholders.

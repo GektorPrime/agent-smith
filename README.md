@@ -1,4 +1,4 @@
-# agent_smith 2.o
+# agent-smith 2.0
 
 Agent Smith is a rule-governed agent orchestration micro-framework for AI-assisted
 development. It ships an MCP server, a curated set of opencode agents, and a
@@ -43,7 +43,7 @@ repository, run the bootstrap:
 
 ```bash
 gh api -H "Accept: application/vnd.github.raw" \
-  "repos/lightspeedretail/agent_smith/contents/install.sh?ref=mainframe" | bash
+  "repos/GektorPrime/agent-smith/contents/install.sh?ref=mainframe" | bash
 ```
 
 This installs the `agent-smith-*` commands as a persistent `uv` tool, downloads the
@@ -216,7 +216,7 @@ uvx --from ~/.agent-smith-tool/<version> agent-smith-kb-query "query text" --k 5
 bash ~/.agent-smith-tool/<version>/bin/sync.sh [--protocol rules|knowledge]
 
 # or straight from GitHub, no install dir needed (requires repository access)
-uvx --from 'git+https://github.com/lightspeedretail/agent_smith.git@<version>' agent-smith-sync
+uvx --from 'git+https://github.com/GektorPrime/agent-smith.git@<version>' agent-smith-sync
 ```
 
 Running sync via `bin/sync.sh` records the local release path as the MCP server's
@@ -267,7 +267,7 @@ under `~/.agent-smith-tool/` than the command currently running.
 `install.sh`:
 
 ```bash
-uvx --from 'git+https://github.com/lightspeedretail/agent_smith.git@mainframe' \
+uvx --from 'git+https://github.com/GektorPrime/agent-smith.git@mainframe' \
   agent-smith-install-release
 ```
 
@@ -285,7 +285,7 @@ Environment variables are the simplest form
 
 ```bash
 gh api -H "Accept: application/vnd.github.raw" \
-  "repos/lightspeedretail/agent_smith/contents/install.sh?ref=mainframe" \
+  "repos/GektorPrime/agent-smith/contents/install.sh?ref=mainframe" \
   | AGENT_SMITH_TARGET_REPO_ROOT=/path/to/your/project bash
 ```
 
@@ -294,7 +294,7 @@ Flags work too, but must go after `bash -s --` (an easy-to-miss form — plain
 
 ```bash
 gh api -H "Accept: application/vnd.github.raw" \
-  "repos/lightspeedretail/agent_smith/contents/install.sh?ref=mainframe" \
+  "repos/GektorPrime/agent-smith/contents/install.sh?ref=mainframe" \
   | bash -s -- --repo-root /path/to/your/project --version <tag>
 ```
 

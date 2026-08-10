@@ -2,7 +2,7 @@
 # Bootstrap and persist the Agent Smith console commands, then install a release.
 set -euo pipefail
 
-GIT_URL="https://github.com/lightspeedretail/agent_smith.git"
+GIT_URL="https://github.com/GektorPrime/agent-smith.git"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -11,7 +11,7 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 REMOTE="$(git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || true)"
-if [[ -d "$SCRIPT_DIR/wireframe" && "$REMOTE" == *"lightspeedretail/agent_smith"* ]]; then
+if [[ -d "$SCRIPT_DIR/wireframe" && "$REMOTE" == *"GektorPrime/agent-smith"* ]]; then
   export AGENT_SMITH_SOURCE_DIR="$SCRIPT_DIR"
   PACKAGE="$SCRIPT_DIR"
 else

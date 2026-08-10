@@ -145,4 +145,4 @@ fi
 
 printf '\nClean slate ready. Bootstrap a fresh install with:\n'
 printf '  gh api -H "Accept: application/vnd.github.raw" \\\n'
-printf '    "repos/lightspeedretail/agent_smith/contents/install.sh?ref=mainframe" | bash\n'
+printf '    "repos/GektorPrime/agent-smith/contents/install.sh?ref=mainframe" | bash\n'

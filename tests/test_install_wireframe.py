@@ -374,7 +374,7 @@ def test_compatibility_script_delegates_to_console_command(tmp_path: Path) -> No
     )
 
     assert uv_calls.read_text(encoding='utf-8').splitlines() == [
-        'tool install --force git+https://github.com/lightspeedretail/agent_smith.git@mainframe',
+        'tool install --force git+https://github.com/GektorPrime/agent-smith.git@mainframe',
         'tool dir --bin',
     ]
     assert args_file.read_text(encoding='utf-8').splitlines() == [

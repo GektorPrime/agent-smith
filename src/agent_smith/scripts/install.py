@@ -15,8 +15,8 @@ from pathlib import Path
 
 from agent_smith.scripts import sync
 
-GITHUB_ORG = 'lightspeedretail'
-GITHUB_REPO = 'agent_smith'
+GITHUB_ORG = 'GektorPrime'
+GITHUB_REPO = 'agent-smith'
 GIT_URL = f'https://github.com/{GITHUB_ORG}/{GITHUB_REPO}.git'
 VERSION_PATTERN = re.compile(r'\d+\.\d+\.\d+')
 
