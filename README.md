@@ -1,4 +1,4 @@
-# agent-smith 2.0
+# agent-smith 2.o
 
 Agent Smith is a rule-governed agent orchestration micro-framework for AI-assisted
 development. It ships an MCP server, a curated set of opencode agents, and a
