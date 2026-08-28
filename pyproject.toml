@@ -4,7 +4,7 @@ build-backend = 'hatchling.build'
 
 [project]
 name = 'agent-smith'
-version = '2.0.0'
+version = '2.0.1'
 description = 'Agent Smith standalone package'
 requires-python = '>=3.11'
 dependencies = [

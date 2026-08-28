@@ -24,13 +24,13 @@ provides the machinery to govern agents with them.
 
 | Role           | Purpose                                                             |
 |----------------|---------------------------------------------------------------------|
-| The Architect  | Primary coordinator; plans work and delegates to specialist agents. |
-| The Executor   | Applies file edits and implementation steps; delegates bash to the Basher. |
-| The Oracle     | Reviews changes for rule and convention compliance.                 |
-| The Inquisitor | Audits intent match, test quality, and coverage risk.               |
-| The Basher     | Runs bash commands on behalf of other agents.                       |
-| The Librarian  | Handles Jira, GitHub, and CircleCI tool workflows.                  |
-| The Analyst    | Standalone primary agent that maintains the Agent Smith Knowledge Base. |
+| The Architect  | Primary coordinator; plans work, inspects commands directly via PTY, and delegates code edits to specialist agents. |
+| The Executor   | Applies file edits and implementation steps; runs shell commands directly via PTY. |
+| The Oracle     | Reviews changes for rule and convention compliance; runs verification directly via PTY. |
+| The Inquisitor | Audits intent match, test quality, and coverage risk; runs probes directly via PTY. |
+| The Basher     | Runs bash commands on behalf of a user, invoked manually. No shipped agent delegates to it. |
+| The Librarian  | Handles Jira, GitHub, and CircleCI tool workflows. Cannot execute commands (no bash, no PTY). |
+| The Analyst    | Standalone primary agent that maintains the Agent Smith Knowledge Base; runs its workflows directly via PTY. |
 
 ## Quick start
 
@@ -125,6 +125,71 @@ Gate markers live in `entry-point.md`, `persona.md`, and every
 `lore/rules_md/**/*.md` file (sync recurses into subfolders and appends a marker
 to any rule file that lacks one; symlinked rule files are marked and rotated
 through the link into their source).
+
+### PTY integration (opencode-pty)
+
+Sync distributes the unpinned npm plugin spec `opencode-pty` (deliberately
+**not** version-pinned — pinning creates upkeep burden) in the `plugin` array
+of `.opencode/opencode.json`. OpenCode auto-installs and auto-updates unpinned
+plugin specs on startup; Agent Smith never vendors or forks the plugin. If a
+host already pins its own override (`opencode-pty@<version>`) directly in
+`opencode.json`, sync preserves it untouched and never adds a duplicate
+unpinned entry. Both directions (`agent-smith-sync` / `--desync`) are
+idempotent and print a `PTY plugin status:` line.
+
+`pty_*` tools (`pty_spawn`, `pty_write`, `pty_read`, `pty_list`, `pty_kill`)
+are wired directly into the five execution-capable shipped agents —
+Architect, Executor, Oracle, Inquisitor, and Analyst — each running commands
+within its own session rather than delegating to Basher. Native `bash`
+remains denied on those agents. Basher and Librarian explicitly deny
+`pty_*`: Basher ships as a manually-invokable bash runner that no other
+shipped agent delegates to anymore, and Librarian never executes commands at
+all.
+
+**Requirements and limitations, worth knowing before relying on this:**
+
+- **Minimum OpenCode version: `>=1.3.13`.** Older versions may load the
+  plugin but lack stable auto-install and `pty_spawn` exit notifications.
+- **Restart required.** OpenCode must be restarted after any plugin or agent
+  configuration change (including a fresh `agent-smith-sync`) for `pty_*`
+  tools and updated agent definitions to take effect.
+- **`pty_spawn` is asynchronous.** It returns a session ID immediately; the
+  command keeps running in the background. A spawn result alone is never
+  completion evidence — agent prompts require checking the session's final
+  `status` (`exited` | `killed`) and exit code before treating a command as
+  finished, and explicitly forbid concluding success or failure while status
+  is `running`.
+- **In-memory rolling output buffer.** The plugin keeps only a rolling
+  in-memory buffer per session (default 50,000 lines, configurable via
+  `PTY_MAX_BUFFER_LINES`). Agents are instructed to read output with bounded
+  `pty_read` calls (`offset`/`limit`/`pattern`) instead of unbounded dumps,
+  and to clean up a session (`pty_kill` with `cleanup=true`) only after
+  consuming the evidence they need.
+- **Permission compatibility.** opencode-pty checks `pty_spawn` commands
+  against the host's `permission.bash` policy but treats any `"ask"` pattern
+  as `"deny"` (plugins cannot trigger OpenCode's interactive permission
+  prompt). Sync never rewrites a host's `permission.bash` policy to
+  compensate for this — it only reports the gap via the
+  `PTY permission compatibility:` line in the sync summary. Tighten `"ask"`
+  patterns to explicit `allow`/`deny` in `opencode.json` if PTY access to
+  those commands is required.
+- **External directory access.** opencode-pty also cannot prompt
+  interactively for `permission.external_directory`, so it treats any
+  `"ask"` mode there as `"allow"` — PTY-spawned commands may then read or
+  write outside the project directory. Sync reports this gap via the
+  `PTY external_directory compatibility:` line in the sync summary and never
+  rewrites or broadens the host's policy. Tighten `"ask"` patterns to
+  explicit `allow`/`deny` if that access is not intended.
+- **Runtime compatibility gate.** The `pty_spawn` lifecycle was verified
+  live in a real OpenCode session after an OpenCode restart: `notifyOnExit`
+  exit notifications fired and `Status: running` → `exited` transitions were
+  observed, confirming the "never claim completion from `Status: running`"
+  contract is enforced at runtime. That check was a manual, host-specific
+  verification, not a portable automated test. The automated suite
+  (`tests/test_agent_prompts.py`) still covers only the static/prompt-contract
+  assertions — it verifies the instruction text is present and binding, not
+  that a live OpenCode session enforces it — so no portable automated runtime
+  test currently exists.
 
 ## Commands
 

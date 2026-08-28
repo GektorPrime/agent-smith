@@ -345,6 +345,371 @@ def test_sync_rejects_non_array_tui_plugins(host: Path, capsys) -> None:
     assert 'plugin must be an array' in capsys.readouterr().err
 
 
+def test_sync_registers_unpinned_pty_plugin(host: Path, capsys) -> None:
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'PTY plugin status: registered' in out
+
+    config = json.loads((host / '.opencode' / 'opencode.json').read_text())
+    assert config['plugin'] == [sync.PTY_PLUGIN_SPEC]
+
+
+def test_sync_pty_plugin_registration_is_idempotent(host: Path, capsys) -> None:
+    assert _run(host) == 0
+    capsys.readouterr()
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'PTY plugin status: already registered' in out
+
+    config = json.loads((host / '.opencode' / 'opencode.json').read_text())
+    assert config['plugin'] == [sync.PTY_PLUGIN_SPEC]
+
+
+def test_sync_preserves_unrelated_host_plugins_when_registering_pty(host: Path) -> None:
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'plugin': ['some-other-plugin']}), encoding='utf-8'
+    )
+
+    assert _run(host) == 0
+
+    config = json.loads(config_path.read_text())
+    assert config['plugin'] == ['some-other-plugin', sync.PTY_PLUGIN_SPEC]
+
+
+def test_sync_preserves_host_pinned_pty_plugin_override(host: Path, capsys) -> None:
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'plugin': ['opencode-pty@1.2.3', 'other-plugin']}),
+        encoding='utf-8',
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'PTY plugin status: preserved (host-pinned override)' in out
+
+    config = json.loads(config_path.read_text())
+    # Unchanged: no duplicate unpinned entry added alongside the host's pin.
+    assert config['plugin'] == ['opencode-pty@1.2.3', 'other-plugin']
+
+
+def test_sync_recognizes_tuple_form_unpinned_pty_plugin_as_registered(
+    host: Path, capsys
+) -> None:
+    """A tuple-form `['opencode-pty', options]` registration must be recognised
+    as the unpinned host registration: activation must not append a duplicate
+    plain-string entry, and the host's tuple (with its options) must be
+    preserved exactly."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'plugin': [['opencode-pty', {'enabled': True}], 'other-plugin']}),
+        encoding='utf-8',
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'PTY plugin status: already registered' in out
+
+    config = json.loads(config_path.read_text())
+    # No duplicate plain-string entry appended; tuple preserved verbatim.
+    assert config['plugin'] == [['opencode-pty', {'enabled': True}], 'other-plugin']
+
+
+def test_sync_recognizes_tuple_form_pinned_pty_plugin_override(
+    host: Path, capsys
+) -> None:
+    """A tuple-form `['opencode-pty@<version>', options]` registration must be
+    classified as a host-pinned override: activation must not append a
+    duplicate unpinned entry, and the host's tuple must be preserved."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'plugin': [['opencode-pty@1.2.3', {'enabled': True}]]}),
+        encoding='utf-8',
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'PTY plugin status: preserved (host-pinned override)' in out
+
+    config = json.loads(config_path.read_text())
+    assert config['plugin'] == [['opencode-pty@1.2.3', {'enabled': True}]]
+
+
+def test_sync_activation_composes_plugin_registration_and_executor_pty_access(
+    host: Path, capsys
+) -> None:
+    """One activation must produce BOTH the unpinned opencode-pty plugin
+    registration AND flattened agent symlinks whose execution-capable agent
+    content grants pty_* access. The two halves are asserted independently so
+    the test fails if either is absent."""
+    assert _run(host) == 0
+    capsys.readouterr()
+
+    # Half 1: the unpinned opencode-pty plugin spec is registered.
+    config = json.loads((host / '.opencode' / 'opencode.json').read_text())
+    plugins = config.get('plugin', [])
+    assert sync.PTY_PLUGIN_SPEC in plugins, (
+        'activation did not register the unpinned opencode-pty plugin spec'
+    )
+
+    # Half 2: the execution-capable executor agent is flattened into
+    # .opencode/agents/ and its content grants pty_* access.
+    executor_link = host / '.opencode' / 'agents' / 'executor.md'
+    assert executor_link.is_symlink(), (
+        'executor agent was not flattened into .opencode/agents/'
+    )
+    assert executor_link.is_file(), 'executor agent symlink does not resolve'
+    content = executor_link.read_text(encoding='utf-8')
+    assert '"pty_*": allow' in content, (
+        'flattened executor agent content does not grant pty_* access'
+    )
+
+
+def test_sync_reports_pty_permission_compatible_by_default(host: Path, capsys) -> None:
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert (
+        'PTY permission compatibility: no host-level permission.bash policy '
+        'configured' in out
+    )
+
+
+def test_sync_reports_pty_permission_ask_pattern_without_modifying_it(
+    host: Path, capsys
+) -> None:
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'permission': {'bash': {'npm *': 'allow', 'git push': 'ask'}}}),
+        encoding='utf-8',
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert (
+        "PTY permission compatibility: 1 'ask' permission.bash pattern(s) "
+        '(git push) will be treated as ' in out
+    )
+    assert 'Host policy left unchanged' in out
+
+    # Never silently broadened or rewritten.
+    config = json.loads(config_path.read_text())
+    assert config['permission'] == {'bash': {'npm *': 'allow', 'git push': 'ask'}}
+
+
+def test_sync_reports_multiple_pty_permission_ask_patterns(host: Path, capsys) -> None:
+    """Multiple `ask` patterns in `permission.bash` must all be reported
+    (counted and listed) without modifying the host policy."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'permission': {'bash': {
+            'git push': 'ask',
+            'rm -rf *': 'ask',
+            'npm *': 'allow',
+        }}}),
+        encoding='utf-8',
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert "2 'ask' permission.bash pattern(s) (git push, rm -rf *)" in out
+    assert 'Host policy left unchanged' in out
+
+    # Host policy preserved exactly, including the non-ask entries.
+    config = json.loads(config_path.read_text())
+    assert config['permission'] == {'bash': {
+        'git push': 'ask',
+        'rm -rf *': 'ask',
+        'npm *': 'allow',
+    }}
+
+
+def test_sync_reports_pty_permission_bash_mapping_without_ask_as_compatible(
+    host: Path, capsys
+) -> None:
+    """A `permission.bash` mapping containing no `ask` entries must be reported
+    as compatible, and the host policy must be preserved exactly."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'permission': {'bash': {
+            'npm *': 'allow',
+            'rm -rf *': 'deny',
+        }}}),
+        encoding='utf-8',
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert (
+        'PTY permission compatibility: compatible with configured '
+        'permission.bash policy' in out
+    )
+
+    # Host policy preserved exactly.
+    config = json.loads(config_path.read_text())
+    assert config['permission'] == {'bash': {
+        'npm *': 'allow',
+        'rm -rf *': 'deny',
+    }}
+
+
+def test_sync_reports_pty_permission_top_level_ask_string(host: Path, capsys) -> None:
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'permission': {'bash': 'ask'}}), encoding='utf-8'
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert "1 'ask' permission.bash pattern(s) (*)" in out
+
+    config = json.loads(config_path.read_text())
+    assert config['permission'] == {'bash': 'ask'}
+
+
+def test_sync_reports_pty_permission_top_level_string_shorthand(
+    host: Path, capsys
+) -> None:
+    """A valid top-level `permission` string shorthand must not crash sync."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps({'permission': 'ask'}), encoding='utf-8')
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert "top-level permission shorthand 'ask' configured" in out
+    assert 'PTY permission compatibility:' in out
+
+    # Host config preserved exactly.
+    config = json.loads(config_path.read_text())
+    assert config['permission'] == 'ask'
+
+
+def test_sync_reports_pty_permission_malformed_shapes_as_unrecognized(
+    host: Path, capsys
+) -> None:
+    """Malformed/unrecognized `permission` or `permission.bash` shapes must be
+    flagged, not reported as compatible."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+
+    # Top-level permission is neither a dict nor a recognized string.
+    config_path.write_text(json.dumps({'permission': 123}), encoding='utf-8')
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'unrecognized permission shape' in out
+    assert 'compatible' not in out
+    # Host permission policy preserved exactly (sync only adds mcp/plugin).
+    assert json.loads(config_path.read_text())['permission'] == 123
+
+    # permission.bash is a list (unrecognized shape).
+    config_path.write_text(
+        json.dumps({'permission': {'bash': ['git *']}}), encoding='utf-8'
+    )
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'unrecognized permission.bash shape' in out
+    assert 'compatible' not in out
+    assert json.loads(config_path.read_text())['permission'] == {
+        'bash': ['git *']
+    }
+
+
+def test_sync_reports_pty_external_directory_ask_treated_as_allow(
+    host: Path, capsys
+) -> None:
+    """opencode-pty treats `permission.external_directory` 'ask' as 'allow';
+    sync must report this gap without modifying the host policy."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'permission': {'external_directory': 'ask'}}),
+        encoding='utf-8',
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'PTY external_directory compatibility:' in out
+    assert "treated as 'allow' by opencode-pty" in out
+
+    # Host policy preserved exactly.
+    config = json.loads(config_path.read_text())
+    assert config['permission'] == {'external_directory': 'ask'}
+
+
+def test_sync_reports_pty_external_directory_compatible_by_default(
+    host: Path, capsys
+) -> None:
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'PTY external_directory compatibility:' in out
+    assert (
+        'no host-level permission.external_directory policy configured' in out
+    )
+
+
+def test_sync_reports_pty_external_directory_shorthand_allow(
+    host: Path, capsys
+) -> None:
+    """The `permission.external_directory` 'allow' shorthand must be reported
+    as compatible without modifying the host policy."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'permission': {'external_directory': 'allow'}}),
+        encoding='utf-8',
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'PTY external_directory compatibility:' in out
+    assert (
+        'compatible with configured permission.external_directory policy' in out
+    )
+
+    config = json.loads(config_path.read_text())
+    assert config['permission'] == {'external_directory': 'allow'}
+
+
+def test_sync_reports_pty_external_directory_shorthand_deny(
+    host: Path, capsys
+) -> None:
+    """The `permission.external_directory` 'deny' shorthand must be reported
+    as compatible without modifying the host policy."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'permission': {'external_directory': 'deny'}}),
+        encoding='utf-8',
+    )
+
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'PTY external_directory compatibility:' in out
+    assert (
+        'compatible with configured permission.external_directory policy' in out
+    )
+
+    config = json.loads(config_path.read_text())
+    assert config['permission'] == {'external_directory': 'deny'}
+
+
+def test_sync_reminds_to_restart_opencode_and_documents_min_version(
+    host: Path, capsys
+) -> None:
+    assert _run(host) == 0
+    out = capsys.readouterr().out
+    assert 'Restart OpenCode after plugin/agent configuration changes' in out
+    assert f'opencode-pty requires OpenCode >={sync.MIN_OPENCODE_VERSION}' in out
+
+
 def test_sync_kb_resets_cached_query_state(host: Path, monkeypatch) -> None:
     scenarios = host / '.agent-smith' / 'lore' / 'json' / 'scenarios'
     (scenarios / 'scenario.json').write_text('[]\n', encoding='utf-8')
@@ -448,6 +813,104 @@ def test_desync_preserves_host_instructions(host: Path) -> None:
 
     config = json.loads(config_path.read_text(encoding='utf-8'))
     assert config['instructions'] == ['AGENTS.md']
+
+
+def test_desync_removes_unpinned_pty_plugin_preserving_unrelated_plugins(
+    host: Path, capsys
+) -> None:
+    assert _run(host) == 0
+    config_path = host / '.opencode' / 'opencode.json'
+    config = json.loads(config_path.read_text())
+    assert config['plugin'] == [sync.PTY_PLUGIN_SPEC]
+    config['plugin'].insert(0, 'unrelated-plugin')
+    config_path.write_text(json.dumps(config), encoding='utf-8')
+
+    capsys.readouterr()
+    assert _run(host, '--desync') == 0
+    out = capsys.readouterr().out
+    assert 'PTY plugin status: removed' in out
+
+    config = json.loads(config_path.read_text())
+    assert config['plugin'] == ['unrelated-plugin']
+
+
+def test_desync_pty_plugin_removal_is_idempotent(host: Path, capsys) -> None:
+    assert _run(host) == 0
+    assert _run(host, '--desync') == 0
+    capsys.readouterr()
+    assert _run(host, '--desync') == 0
+    out = capsys.readouterr().out
+    assert 'PTY plugin status: absent' in out
+
+
+def test_desync_preserves_host_pinned_pty_plugin_override(host: Path, capsys) -> None:
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'plugin': ['opencode-pty@1.2.3']}), encoding='utf-8'
+    )
+
+    assert _run(host, '--desync') == 0
+    out = capsys.readouterr().out
+    assert 'PTY plugin status: preserved (host-pinned override)' in out
+
+    config = json.loads(config_path.read_text())
+    assert config['plugin'] == ['opencode-pty@1.2.3']
+
+
+def test_desync_removes_unpinned_pty_plugin_even_when_pinned_present(
+    host: Path, capsys
+) -> None:
+    """Desync must remove the exact unpinned `opencode-pty` entry even when a
+    host-pinned `opencode-pty@<version>` entry also exists, preserving the
+    pinned override and any unrelated plugins regardless of array ordering."""
+    for ordering in (
+        ['opencode-pty@1.2.3', 'opencode-pty', 'unrelated-plugin'],
+        ['opencode-pty', 'opencode-pty@1.2.3', 'unrelated-plugin'],
+    ):
+        config_path = host / '.opencode' / 'opencode.json'
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            json.dumps({'plugin': ordering}), encoding='utf-8'
+        )
+
+        capsys.readouterr()
+        assert _run(host, '--desync') == 0
+        out = capsys.readouterr().out
+        assert 'PTY plugin status: removed' in out
+
+        config = json.loads(config_path.read_text())
+        # Unpinned entry gone; pinned override and unrelated plugin preserved.
+        assert config['plugin'] == ['opencode-pty@1.2.3', 'unrelated-plugin']
+
+
+def test_desync_removes_tuple_form_unpinned_pty_plugin(
+    host: Path, capsys
+) -> None:
+    """Desync must remove a tuple-form unpinned `opencode-pty` registration
+    (treating it equivalently to the plain-string unpinned spec) while
+    preserving any host-pinned override and unrelated plugins. Sync never
+    rewrites the host's tuple into a plain string; it removes the whole
+    entry."""
+    config_path = host / '.opencode' / 'opencode.json'
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({'plugin': [
+            ['opencode-pty', {'enabled': True}],
+            'opencode-pty@1.2.3',
+            'unrelated-plugin',
+        ]}),
+        encoding='utf-8',
+    )
+
+    capsys.readouterr()
+    assert _run(host, '--desync') == 0
+    out = capsys.readouterr().out
+    assert 'PTY plugin status: removed' in out
+
+    config = json.loads(config_path.read_text())
+    # Tuple-form unpinned entry gone; pinned override and unrelated preserved.
+    assert config['plugin'] == ['opencode-pty@1.2.3', 'unrelated-plugin']
 
 
 def test_sync_requires_agent_smith_dir(host: Path, capsys) -> None:

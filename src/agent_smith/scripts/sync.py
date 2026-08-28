@@ -8,13 +8,23 @@ Activation (default):
   - Symlinks .agent-smith/opencode/ files into host .opencode/.
   - Selects AGENTS.instructions.md for the resolved protocol.
   - Writes the agent_smith MCP block into .opencode/opencode.json.
+  - Registers the unpinned `opencode-pty` npm plugin spec in the `plugin`
+    array of .opencode/opencode.json (a pre-existing host-pinned
+    `opencode-pty@<version>` override is preserved, never duplicated).
   - Builds the knowledge base when the protocol is knowledge and
     scenario JSON exists.
 
 Deactivation (--desync):
   - Removes .opencode/ symlinks that point into .agent-smith/opencode/.
   - Strips the agent_smith MCP block from .opencode/opencode.json.
+  - Removes the unpinned `opencode-pty` plugin registration (a host-pinned
+    override, if present, is left untouched).
   - Leaves .agent-smith/ fully intact (markers included).
+
+Both directions are idempotent for the `opencode-pty` plugin registration and
+report a plugin registration/removal status. OpenCode must be restarted after
+plugin or agent configuration changes for `pty_*` tools and updated agent
+definitions to take effect. opencode-pty requires OpenCode >=1.3.13.
 
 Console script: agent-smith-sync
 """
@@ -42,6 +52,18 @@ GATE_MARKER = (
 INSTRUCTIONS_PATH = '.opencode/AGENTS.instructions.md'
 RUNTIME_FILE = 'runtime.json'
 TUI_PANEL_FILE = 'agent-smith-rules-panel.tsx'
+
+# Unpinned by design: the user rejected pinning `opencode-pty` because it
+# creates upkeep burden. OpenCode auto-installs and auto-updates unpinned
+# npm plugin specs on startup. A host may still pin its own override
+# (`opencode-pty@<version>`) directly in .opencode/opencode.json — sync
+# preserves that override and never adds a duplicate unpinned entry.
+PTY_PLUGIN_SPEC = 'opencode-pty'
+
+# opencode-pty requires OpenCode >=1.3.13 for stable plugin auto-install and
+# pty_spawn exit notifications (`notifyOnExit`). Documented here, and in the
+# activation summary, because sync cannot detect the host's OpenCode version.
+MIN_OPENCODE_VERSION = '1.3.13'
 
 _PROTOCOLS = ('rules', 'knowledge')
 
@@ -464,6 +486,245 @@ def _configure_tui_panel(repo_root: Path, enabled: bool) -> str:
     return status
 
 
+def _pty_plugin_spec(entry) -> str | None:
+    """Return the package spec of a `plugin` array entry, or None if the entry
+    is not an opencode-pty spec.
+
+    OpenCode formally supports both plain-string plugin entries
+    (`"opencode-pty"` / `"opencode-pty@<version>"`) and tuple-form entries
+    (`["opencode-pty", {"option": value}]` /
+    `["opencode-pty@<version>", {"option": value}]`). The package spec is the
+    first element of a tuple; the trailing options object is host-owned and
+    must never be rewritten by sync. Any other shape (a non-string spec, a
+    non-tuple entry, etc.) is not an opencode-pty spec and returns None so it
+    is left untouched.
+    """
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, list) and entry and isinstance(entry[0], str):
+        return entry[0]
+    return None
+
+
+def _is_unpinned_pty_entry(entry) -> bool:
+    """True if `entry` is the unpinned `opencode-pty` registration, in either
+    string or tuple form. Used to remove exactly the unpinned registration on
+    desync while preserving host-pinned overrides and unrelated plugins."""
+    return _pty_plugin_spec(entry) == PTY_PLUGIN_SPEC
+
+
+def _pty_plugin_state(plugins: list) -> tuple[bool, bool]:
+    """Classify existing `plugin` array entries for opencode-pty.
+
+    Returns a (unpinned_present, pinned_present) tuple so both variants can be
+    detected independently. A host may have BOTH the unpinned `opencode-pty`
+    spec and a host-pinned `opencode-pty@<version>` override in the array at
+    the same time; classifying only the first match would miss the other.
+
+    Both plain-string and tuple-form entries are classified equivalently: a
+    tuple whose first element is `opencode-pty` is an unpinned host
+    registration, and a tuple whose first element is `opencode-pty@<version>`
+    is a host-pinned override. Recognising tuple forms prevents sync from
+    appending a duplicate plain-string entry next to a host's tuple
+    registration and from rewriting the host-owned tuple.
+    """
+    unpinned = False
+    pinned = False
+    for entry in plugins:
+        spec = _pty_plugin_spec(entry)
+        if spec is None:
+            continue
+        if spec == PTY_PLUGIN_SPEC:
+            unpinned = True
+        elif spec.startswith(f'{PTY_PLUGIN_SPEC}@'):
+            pinned = True
+    return unpinned, pinned
+
+
+def _configure_pty_plugin(repo_root: Path, enabled: bool) -> str:
+    """Register/deregister the unpinned `opencode-pty` plugin spec in the
+    `plugin` array of .opencode/opencode.json.
+
+    Idempotent in both directions. Unrelated host plugins are always
+    preserved. A host-pinned `opencode-pty@<version>` override is never
+    touched, never duplicated, and never removed by this function.
+    """
+    config_file = repo_root / '.opencode' / 'opencode.json'
+    if not enabled and not config_file.is_file():
+        return 'absent'
+
+    config = _load_opencode_config(config_file)
+    plugins = config.get('plugin')
+    if plugins is None:
+        plugins = []
+    elif not isinstance(plugins, list):
+        raise SyncError(f'Invalid JSON in {config_file}: plugin must be an array')
+
+    unpinned, pinned = _pty_plugin_state(plugins)
+
+    if enabled:
+        if unpinned:
+            status = 'already registered'
+        elif pinned:
+            # Host pinned its own override; do not add a duplicate unpinned
+            # entry alongside it.
+            status = 'preserved (host-pinned override)'
+        else:
+            plugins.append(PTY_PLUGIN_SPEC)
+            config['plugin'] = plugins
+            status = 'registered'
+    else:
+        if unpinned:
+            # Remove exactly the unpinned `opencode-pty` registration (string
+            # or tuple form), but preserve any host-pinned
+            # `opencode-pty@<version>` override and all unrelated plugins.
+            # Sync never rewrites a tuple into a plain string; it removes the
+            # whole entry on desync.
+            remaining = [
+                entry for entry in plugins if not _is_unpinned_pty_entry(entry)
+            ]
+            if remaining:
+                config['plugin'] = remaining
+            else:
+                config.pop('plugin', None)
+            status = 'removed'
+        elif pinned:
+            status = 'preserved (host-pinned override)'
+        else:
+            status = 'absent'
+
+    _write_opencode_config(config_file, config)
+    return status
+
+
+def _pty_permission_notice(config: dict) -> str:
+    """Report host bash permission policies opencode-pty cannot honour the
+    same way the built-in bash tool does, without ever modifying them.
+
+    opencode-pty checks pty_spawn commands against permission.bash, but
+    (per the plugin's own documented limitation) treats any "ask" pattern as
+    "deny" since a plugin cannot trigger OpenCode's interactive permission
+    prompt. Sync never rewrites the host's permission policy to compensate —
+    it only surfaces the gap so the host can decide whether to tighten
+    "ask" patterns to explicit "allow"/"deny" for PTY-spawned commands.
+
+    A valid top-level `permission` string shorthand is handled without
+    crashing, and malformed/unrecognized `permission` or `permission.bash`
+    shapes are flagged rather than reported as compatible. The host
+    configuration is never modified.
+    """
+    permission = config.get('permission')
+    if permission is None:
+        return 'no host-level permission.bash policy configured'
+
+    # Valid top-level shorthand: a bare string applies to all permission
+    # categories. There is no bash-specific policy to inspect, so report that
+    # rather than crashing or claiming a bash policy exists.
+    if isinstance(permission, str):
+        return (
+            f"top-level permission shorthand '{permission}' configured — "
+            'no host-level permission.bash policy to inspect'
+        )
+
+    if not isinstance(permission, dict):
+        return (
+            f"unrecognized permission shape ({type(permission).__name__}) — "
+            'host permission config left unchanged; verify it is valid'
+        )
+
+    bash_permission = permission.get('bash')
+
+    if bash_permission is None:
+        return 'no host-level permission.bash policy configured'
+
+    ask_patterns: list[str] = []
+    if bash_permission == 'ask':
+        ask_patterns = ['*']
+    elif bash_permission in ('allow', 'deny'):
+        # Recognized bash shorthand; no ask patterns to flag.
+        pass
+    elif isinstance(bash_permission, dict):
+        ask_patterns = sorted(
+            pattern for pattern, mode in bash_permission.items() if mode == 'ask'
+        )
+    else:
+        return (
+            f"unrecognized permission.bash shape "
+            f"({type(bash_permission).__name__}) — host permission config "
+            'left unchanged; verify it is valid'
+        )
+
+    if not ask_patterns:
+        return 'compatible with configured permission.bash policy'
+
+    return (
+        f"{len(ask_patterns)} 'ask' permission.bash pattern(s) "
+        f"({', '.join(ask_patterns)}) will be treated as 'deny' for "
+        "pty_spawn commands — plugins cannot trigger OpenCode's permission "
+        'prompt. Host policy left unchanged; tighten to explicit allow/deny '
+        'if PTY access to those commands is required.'
+    )
+
+
+def _pty_external_directory_notice(config: dict) -> str:
+    """Report the host's `permission.external_directory` policy and the
+    opencode-pty limitation that 'ask' is treated as 'allow' for it.
+
+    Unlike `permission.bash` (where opencode-pty treats 'ask' as 'deny'),
+    opencode-pty cannot prompt interactively for external_directory access,
+    so an 'ask' mode is coerced to 'allow' — PTY-spawned commands may then
+    read or write outside the project directory. Sync only surfaces this gap
+    and never rewrites or broadens the host's policy. Malformed/unrecognized
+    shapes are flagged rather than reported as compatible.
+    """
+    permission = config.get('permission')
+    if permission is None:
+        return 'no host-level permission.external_directory policy configured'
+    if isinstance(permission, str):
+        return (
+            f"top-level permission shorthand '{permission}' configured — "
+            'no host-level permission.external_directory policy to inspect'
+        )
+    if not isinstance(permission, dict):
+        return (
+            f"unrecognized permission shape ({type(permission).__name__}) — "
+            'host permission config left unchanged; verify it is valid'
+        )
+
+    external = permission.get('external_directory')
+    if external is None:
+        return 'no host-level permission.external_directory policy configured'
+
+    ask_patterns: list[str] = []
+    if external == 'ask':
+        ask_patterns = ['*']
+    elif external in ('allow', 'deny'):
+        # Recognized shorthand; no ask coercion to flag.
+        pass
+    elif isinstance(external, dict):
+        ask_patterns = sorted(
+            pattern for pattern, mode in external.items() if mode == 'ask'
+        )
+    else:
+        return (
+            f"unrecognized permission.external_directory shape "
+            f"({type(external).__name__}) — host permission config left "
+            'unchanged; verify it is valid'
+        )
+
+    if not ask_patterns:
+        return 'compatible with configured permission.external_directory policy'
+
+    return (
+        f"{len(ask_patterns)} 'ask' permission.external_directory pattern(s) "
+        f"({', '.join(ask_patterns)}) will be treated as 'allow' by "
+        "opencode-pty (no interactive prompt) — PTY-spawned commands may "
+        'read/write outside the project directory. Host policy left '
+        'unchanged; tighten to explicit allow/deny if that access is not '
+        'intended.'
+    )
+
+
 def _sync_kb(repo_root: Path, protocol: str) -> str:
     if protocol != 'knowledge':
         return 'skipped (rules protocol)'
@@ -503,6 +764,13 @@ def _activate(repo_root: Path, protocol_flag: str | None) -> None:
     _write_runtime_config(repo_root, protocol, version)
     _write_mcp_config(repo_root, protocol, version)
     tui_status = _configure_tui_panel(repo_root, protocol == 'knowledge')
+    pty_status = _configure_pty_plugin(repo_root, True)
+    pty_permission_status = _pty_permission_notice(
+        _load_opencode_config(repo_root / '.opencode' / 'opencode.json')
+    )
+    pty_external_dir_status = _pty_external_directory_notice(
+        _load_opencode_config(repo_root / '.opencode' / 'opencode.json')
+    )
     kb_status = _sync_kb(repo_root, protocol)
 
     if shutil.which('uv') is None:
@@ -521,7 +789,16 @@ Gate markers inserted: {markers_inserted}
 Symlinks created: {counters['created']}, refreshed: {counters['refreshed']}, skipped: {counters['skipped']}, pruned: {counters['pruned']}
 MCP config status: written
 TUI panel status: {tui_status}
+PTY plugin status: {pty_status}
+PTY permission compatibility: {pty_permission_status}
+PTY external_directory compatibility: {pty_external_dir_status}
 KB sync status: {kb_status}
+NOTE: Restart OpenCode after plugin/agent configuration changes for pty_*
+      tools and updated agent definitions to take effect.
+NOTE: opencode-pty requires OpenCode >={MIN_OPENCODE_VERSION}. It keeps only
+      a rolling in-memory output buffer per PTY session (default 50,000
+      lines) — read output with bounded pty_read calls (offset/limit/pattern)
+      rather than unbounded dumps.
 Deactivate command: uvx --from "{package}" agent-smith-sync --repo-root "{repo_root}" --desync"""
     )
 
@@ -567,6 +844,7 @@ def _desync(repo_root: Path) -> None:
         mcp_status = 'absent'
 
     tui_status = _configure_tui_panel(repo_root, False)
+    pty_status = _configure_pty_plugin(repo_root, False)
 
     version = _tool_version()
     package = _package_source(version)
@@ -577,6 +855,7 @@ Desync summary
 Symlinks removed: {removed}
 MCP config status: {mcp_status}
 TUI panel status: {tui_status}
+PTY plugin status: {pty_status}
 .agent-smith/ left intact (gate markers preserved).
 Reactivate command: uvx --from "{package}" agent-smith-sync --repo-root "{repo_root}\""""
     )
